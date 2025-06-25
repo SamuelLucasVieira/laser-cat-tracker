@@ -1,80 +1,87 @@
+import sys, asyncio
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+import os
+import math
+import time
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-import psycopg2
 import pandas as pd
-import math
-import os
+import psycopg2
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Atualiza automaticamente a cada 2 segundos
+# === Carrega .env (mesmo diretório deste script) ===
+dotenv_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path)
+
+# === Configurações da página ===
+st.set_page_config(page_title="Laser Tracker", layout="wide")
+
+# === Auto-refresh a cada 2 segundos ===
 st_autorefresh(interval=2000, limit=None, key="refresh")
 
-# Carrega variáveis do .env
-load_dotenv()
-
-# Função para calcular ângulo
-def calcular_angulo(x, y):
-    angulo = math.degrees(math.atan2(y, x))
-    return angulo if angulo >= 0 else angulo + 360
-
-# Conexão com o banco
+# === Funções de banco de dados ===
 def conectar():
-    return psycopg2.connect(
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT")
-    )
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        st.error("DATABASE_URL não definida no .env")
+        st.stop()
+    try:
+        return psycopg2.connect(url)
+    except Exception as e:
+        st.error(f"Falha ao conectar no banco: {e}")
+        st.stop()
 
-# Título do app
+# === Função de cálculo de ângulo polar ===
+def calcular_angulo(x, y):
+    a = math.degrees(math.atan2(y, x))
+    return a if a >= 0 else a + 360
+
+# === Cabeçalho do dashboard ===
 st.title("📡 Dashboard em Tempo Real - Laser Tracker")
 st.caption("Atualiza automaticamente a cada 2 segundos.")
 
-# Botão para apagar todos os dados e resetar o contador de ID
+# === Botão para resetar dados ===
 if st.button("🗑️ Apagar todos os movimentos e reiniciar ID"):
-    try:
-        conn = conectar()
-        cur = conn.cursor()
-        cur.execute("TRUNCATE movimentos_laser RESTART IDENTITY")
-        conn.commit()
-        cur.close()
-        conn.close()
-        st.success("Todos os movimentos foram apagados e o contador de ID foi reiniciado.")
-        st.experimental_rerun()
-    except Exception as e:
-        st.error(f"Erro ao apagar e reiniciar: {e}")
-        st.stop()
-
-# Consulta os dados (sem movimento_num)
-try:
     conn = conectar()
-    df = pd.read_sql("SELECT x_pos, y_pos FROM movimentos_laser ORDER BY id ASC", conn)
+    cur = conn.cursor()
+    cur.execute("TRUNCATE movimentos_laser RESTART IDENTITY")
+    conn.commit()
+    cur.close()
     conn.close()
-except Exception as e:
-    st.error(f"Erro ao conectar ao banco: {e}")
+    st.success("Dados apagados e contador reiniciado.")
+    st.experimental_rerun()
+
+# === Carrega dados do banco ===
+conn = conectar()
+df = pd.read_sql("SELECT id, x_pos, y_pos, ts FROM movimentos_laser ORDER BY id ASC", conn)
+conn.close()
+
+if df.empty:
+    st.warning("Nenhum movimento registrado ainda.")
     st.stop()
 
-# Calcula o ângulo
-df["angulo"] = df.apply(lambda row: calcular_angulo(row["x_pos"], row["y_pos"]), axis=1)
+# === Calcula ângulo ===
+df["angulo"] = df.apply(lambda r: calcular_angulo(r["x_pos"], r["y_pos"]), axis=1)
 
-# Exibe os últimos 10 movimentos (sem IDs)
+# === Exibe últimos 10 movimentos ===
 st.subheader("📋 Últimos Movimentos")
-st.dataframe(df[["x_pos", "y_pos", "angulo"]].tail(10), use_container_width=True)
+st.dataframe(df[["id","x_pos","y_pos","angulo"]].tail(10), use_container_width=True)
 
-# Gráfico de ângulo (usando índice como eixo X)
+# === Gráfico de evolução dos ângulos ===
 st.subheader("📈 Evolução dos Ângulos")
-st.line_chart(df[["angulo"]])
+st.line_chart(df.set_index("id")["angulo"])
 
-# Gráfico de trajetória em 2D
-st.subheader("🧭 Trajetória do Movimento (Simulação em uma folha)")
-
+# === Gráfico de trajetória 2D ===
+st.subheader("🧭 Trajetória 2D do Laser")
 fig, ax = plt.subplots()
-ax.plot(df["x_pos"], df["y_pos"], marker='o', linestyle='-', color='blue')
-ax.set_xlabel("Posição X")
-ax.set_ylabel("Posição Y")
-ax.set_title("Trajetória do Laser")
+ax.plot(df["x_pos"], df["y_pos"], marker='o', linestyle='-')
+ax.set_xlabel('Posição X')
+ax.set_ylabel('Posição Y')
+ax.set_title('Trajetória do Laser')
 ax.grid(True)
 ax.set_aspect('equal', adjustable='box')
 st.pyplot(fig)
