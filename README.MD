@@ -65,7 +65,7 @@ python -m venv venv
 - **Windows**:
 
 ```bash
-venv\Scripts\activate
+venv/Scripts/activate
 ```
 
 - **Linux/MacOS**:
@@ -189,11 +189,18 @@ source venv/bin/activate  # Linux/MacOS
 
 # Instalar dependências
 pip install -r requirements.txt
-
+----------------------------------------------------------------------------------------------------------
+#Lembrando que é necessário abrir um terminal separado com venv/Scripts/activate ativado para cada arquivo
+----------------------------------------------------------------------------------------------------------
 # Executar/python captura_movimentos.py
 python captura_movimentos.py
 
 # Executar/python realtime_dashboard.py
 streamlit run realtime_dashboard.py
 
+# Arquivo responsável por salvar no banco de dados
+python writeBd.py
+
+#executar o teste do MQTT
+python mqttTeste.py
 ```
